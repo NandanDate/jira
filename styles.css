@@ -744,3 +744,22 @@ a:hover {
   transform: none;
   box-shadow: none;
 }
+
+.important-note {
+  background-color: #FFEBE6;
+  border-left: 4px solid var(--warning-color);
+  padding: 12px 15px;
+  margin-bottom: 20px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.important-note p {
+  margin: 0;
+  color: #172B4D;
+}
+
+.important-note strong {
+  color: #DE350B;
+}
