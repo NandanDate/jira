@@ -1,0 +1,121 @@
+<!-- index.html - Main application UI -->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Jira Logger</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <div id="login-section" class="section">
+      <h2>Connect to Jira</h2>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="jira-url">Jira URL:</label>
+          <input type="text" id="jira-url" placeholder="https://your-domain.atlassian.net" required>
+        </div>
+        <div class="form-group">
+          <label for="username">Email:</label>
+          <input type="email" id="username" placeholder="your-email@example.com" required>
+        </div>
+        <div class="form-group">
+          <label for="api-token">API Token:</label>
+          <input type="password" id="api-token" placeholder="Your Jira API token" required>
+          <small>
+            <a href="#" id="direct-token-link" class="api-token-link">Click here to get your API token</a>
+          </small>
+        </div>
+        <div class="form-group">
+          <button type="button" id="get-token-button" class="secondary-button">🔑 Get API Token</button>
+        </div>
+        <div class="form-group checkbox-group">
+          <input type="checkbox" id="remember-token" checked>
+          <label for="remember-token">Remember token for future sessions</label>
+        </div>
+        <button type="submit" id="login-button">Connect</button>
+        <div id="login-status" class="status-message"></div>
+      </form>
+    </div>
+
+    <div id="project-section" class="section hidden">
+      <h2>Select Project and Issue</h2>
+      <div class="form-group">
+        <label for="project-select">Project:</label>
+        <select id="project-select">
+          <option value="">Select a project</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="issue-select">Issue:</label>
+        <select id="issue-select">
+          <option value="">Select an issue</option>
+        </select>
+        <button id="new-issue-button">Create New Issue</button>
+      </div>
+      <div id="new-issue-form" class="hidden">
+        <div class="form-group">
+          <label for="issue-summary">Summary:</label>
+          <input type="text" id="issue-summary" placeholder="Issue summary">
+        </div>
+        <div class="form-group">
+          <label for="issue-type">Issue Type:</label>
+          <select id="issue-type">
+            <option value="Task">Task</option>
+            <option value="Bug">Bug</option>
+            <option value="Story">Story</option>
+          </select>
+        </div>
+        <button id="create-issue-button">Create Issue</button>
+        <button id="cancel-issue-button">Cancel</button>
+      </div>
+      <div class="form-group">
+        <label for="reminder-interval">Reminder Interval:</label>
+        <div class="time-input-group">
+          <div class="time-input-container">
+            <input type="number" id="reminder-hours" min="0" max="24" value="0">
+            <span class="time-label">Hours</span>
+          </div>
+          <div class="time-input-container">
+            <input type="number" id="reminder-minutes" min="0" max="59" value="30">
+            <span class="time-label">Minutes</span>
+          </div>
+        </div>
+      </div>
+      <button id="start-tracking-button">Start Tracking</button>
+    </div>
+
+    <div id="tracking-section" class="section hidden">
+      <h2>Currently Tracking</h2>
+      <div id="current-task-info">
+        <p><strong>Project:</strong> <span id="current-project"></span></p>
+        <p><strong>Issue:</strong> <span id="current-issue"></span></p>
+        <p><strong>Started:</strong> <span id="start-time"></span></p>
+        <p><strong>Time Elapsed:</strong> <span id="elapsed-time">00:00:00</span></p>
+      </div>
+      <button id="log-work-button">Log Work</button>
+      <button id="stop-tracking-button">Stop Tracking</button>
+    </div>
+
+    <div id="log-work-section" class="section hidden">
+      <h2>Log Work</h2>
+      <div class="form-group">
+        <label for="time-spent">Time Spent (Jira format):</label>
+        <div class="input-container">
+          <input type="text" id="time-spent" placeholder="e.g., 1h 30m or 1.5h">
+          <button id="use-current-time" class="secondary-button">Use Tracked Time</button>
+        </div>
+        <small>Enter time manually or use the tracked time. Format: "1h 30m", "1.5h", or "45m"</small>
+      </div>
+      <div class="form-group">
+        <label for="work-comment">Comment:</label>
+        <textarea id="work-comment" placeholder="Describe what you've worked on"></textarea>
+      </div>
+      <button id="submit-log-button">Submit</button>
+      <button id="cancel-log-button">Cancel</button>
+    </div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
