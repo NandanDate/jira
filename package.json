@@ -3,10 +3,11 @@
     "version": "1.0.0",
     "description": "Automatic Jira time logging desktop application",
     "main": "main.js",
-    "scripts": {
+    "scripts" : {
         "start": "electron .",
-        "build": "electron-builder"
-    },
+        "build": "electron-builder",
+        "dist": "electron-builder --win --x64"
+      },
     "author": "Your Name",
     "license": "MIT",
     "dependencies": {
@@ -20,13 +21,15 @@
         "electron": "^28.0.0",
         "electron-builder": "^24.6.4"
     },
+ 
+
     "build": {
         "appId": "com.yourname.jiralogger",
         "productName": "Jira Logger",
         "publish": [
             {
                 "provider": "github",
-                "owner": "your-github-username",
+                "owner": "NandanDate",
                 "repo": "jira-logger"
             }
         ],
