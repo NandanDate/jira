@@ -47,6 +47,25 @@ let autoLogOnQuit = false;
 function init() {
   console.log('Initializing app, checking for saved credentials');
   
+  // Request notification permission at startup
+  if ("Notification" in window) {
+    console.log('Requesting notification permission at startup');
+    setTimeout(() => {
+      if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+        console.log('Requesting notification permission...');
+        Notification.requestPermission().then(function(permission) {
+          console.log('Notification permission response:', permission);
+        }).catch(err => {
+          console.error('Error requesting notification permission:', err);
+        });
+      } else {
+        console.log('Notification permission already set:', Notification.permission);
+      }
+    }, 3000); // Delay by 3 seconds after app start
+  } else {
+    console.log('Browser does not support notifications');
+  }
+  
   // Try to load saved values first
   const savedDomain = localStorage.getItem('jira-domain');
   const savedEmail = localStorage.getItem('jira-email');
@@ -227,6 +246,104 @@ function init() {
   ipcRenderer.on('quit-and-log-work', async () => {
     autoLogOnQuit = true;
     showLogWorkSection();
+  });
+  
+  ipcRenderer.on('show-browser-notification', (event, data) => {
+    console.log('Received request to show browser notification:', data);
+    
+    // Try to show a browser notification as fallback
+    try {
+      // Check if we have permission and request it if needed
+      if (!("Notification" in window)) {
+        console.log('Browser does not support notifications');
+        return;
+      }
+      
+      // Check permission
+      if (Notification.permission === 'granted') {
+        console.log('Browser notification permission already granted, showing notification');
+        showBrowserNotification(data.title, data.message);
+      } else if (Notification.permission !== 'denied') {
+        console.log('Requesting browser notification permission');
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            console.log('Permission granted, showing notification');
+            showBrowserNotification(data.title, data.message);
+          } else {
+            console.log('Browser notification permission denied');
+          }
+        }).catch(err => {
+          console.error('Error requesting notification permission:', err);
+        });
+      } else {
+        console.log('Browser notification permission previously denied');
+      }
+    } catch (error) {
+      console.error('Error showing browser notification:', error);
+    }
+  });
+  
+  ipcRenderer.on('reminder-fallback', () => {
+    console.log('Received fallback reminder alert');
+    
+    // Only show fallback if no reminder dialog already exists
+    if (!document.querySelector('.reminder-dialog')) {
+      // Play alert sound
+      try {
+        const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBhxQo/T/xHErCgogZbX94sN3MRIFKHCy8tm6dDMUBzRyruPOr201EglBdarbwKVqNRQQS32i0LSdZjgYFlJ7mMWolGE8HB5TcJLAn5FfQCEfUTyaw5OJX0MkHlMo0LyIiFxEJxhT');
+        audio.volume = 1.0;
+        audio.play().catch(err => console.log('Error playing sound:', err));
+      } catch (e) {
+        console.error('Failed to play sound:', e);
+      }
+      
+      // Create an in-app alert
+      const reminderDialog = document.createElement('div');
+      reminderDialog.classList.add('reminder-dialog');
+      reminderDialog.style.zIndex = "10000"; // Ensure it's on top
+      reminderDialog.innerHTML = `
+        <div class="reminder-content">
+          <div class="pulse-animation">
+            <h2 class="blinking">TIME TO LOG YOUR WORK!</h2>
+          </div>
+          <p class="reminder-message">Your tracking reminder has elapsed. Please update your time log now!</p>
+          <div class="reminder-buttons">
+            <button id="reminder-log-now" class="primary-button">Log Work Now</button>
+            <button id="reminder-later" class="secondary-button">Remind Me Later</button>
+            <button id="reminder-snooze" class="small-button">Snooze 5 minutes</button>
+          </div>
+        </div>
+      `;
+      
+      document.body.appendChild(reminderDialog);
+      
+      // Handle reminder dialog buttons
+      document.getElementById('reminder-log-now').addEventListener('click', () => {
+        document.body.removeChild(reminderDialog);
+        ipcRenderer.send('flash-window', false);
+        showLogWorkSection();
+      });
+      
+      document.getElementById('reminder-later').addEventListener('click', () => {
+        document.body.removeChild(reminderDialog);
+        ipcRenderer.send('flash-window', false);
+      });
+      
+      document.getElementById('reminder-snooze').addEventListener('click', () => {
+        document.body.removeChild(reminderDialog);
+        ipcRenderer.send('flash-window', false);
+        // Snooze the reminder for 5 minutes
+        ipcRenderer.send('set-reminder', 5);
+      });
+      
+      // Auto-remove after 60 seconds
+      setTimeout(() => {
+        if (document.body.contains(reminderDialog)) {
+          document.body.removeChild(reminderDialog);
+          ipcRenderer.send('flash-window', false);
+        }
+      }, 60000);
+    }
   });
   
   // Setup event listeners
@@ -774,8 +891,152 @@ function updateElapsedTime() {
   
   elapsedTimeSpan.textContent = `${hours}:${minutes}:${seconds}`;
   
+  // Check if elapsed time exceeds reminder time
+  const reminderHours = parseInt(reminderHoursInput.value) || 0;
+  const reminderMinutes = parseInt(reminderMinutesInput.value) || 0;
+  const totalReminderSeconds = ((reminderHours * 60) + reminderMinutes) * 60;
+  
+  // Log the current state for debugging
+  if (totalReminderSeconds > 0 && elapsed % 10 === 0) { // Log every 10 seconds
+    console.log(`Timer check: ${elapsed}s elapsed, reminder set for ${totalReminderSeconds}s`);
+  }
+  
+  // Improved notification trigger logic with direct browser notification
+  if (totalReminderSeconds > 0) {
+    // Store the last notification time in a data attribute
+    const lastNotificationTime = parseInt(elapsedTimeSpan.getAttribute('data-last-notification') || '0');
+    
+    // Check if we've reached or passed the reminder time and haven't sent a notification recently
+    if (elapsed >= totalReminderSeconds && (elapsed - lastNotificationTime >= totalReminderSeconds || lastNotificationTime === 0)) {
+      console.log(`Timer elapsed: ${elapsed}s exceeds reminder time: ${totalReminderSeconds}s - sending notification`);
+      
+      // DIRECT BROWSER NOTIFICATION - most reliable approach
+      // Try to show a browser notification directly
+      if ("Notification" in window) {
+        if (Notification.permission === 'granted') {
+          console.log('Directly showing browser notification from timer');
+          const notification = new Notification("Jira Logger Reminder", {
+            body: "Time to update your Jira task! Click to add comments and log work.",
+            icon: 'assets/icon.png',
+            requireInteraction: true
+          });
+          
+          notification.onclick = function() {
+            console.log('Direct browser notification clicked');
+            if (!document.querySelector('.reminder-dialog')) {
+              showLogWorkSection();
+            }
+          };
+          
+          // Play sound
+          try {
+            const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBhxQo/T/xHErCgogZbX94sN3MRIFKHCy8tm6dDMUBzRyruPOr201EglBdarbwKVqNRQQS32i0LSdZjgYFlJ7mMWolGE8HB5TcJLAn5FfQCEfUTyaw5OJX0MkHlMo0LyIiFxEJxhT');
+            audio.volume = 1.0;
+            audio.play().catch(err => console.log('Error playing sound:', err));
+          } catch (e) {
+            console.error('Failed to play sound:', e);
+          }
+        } else if (Notification.permission !== 'denied') {
+          console.log('Requesting notification permission from timer');
+          Notification.requestPermission().then(function(permission) {
+            if (permission === 'granted') {
+              const notification = new Notification("Jira Logger Reminder", {
+                body: "Time to update your Jira task! Click to add comments and log work.",
+                icon: 'assets/icon.png',
+                requireInteraction: true
+              });
+              
+              notification.onclick = function() {
+                console.log('Direct browser notification clicked after permission grant');
+                if (!document.querySelector('.reminder-dialog')) {
+                  showLogWorkSection();
+                }
+              };
+            }
+          });
+        }
+      }
+      
+      // Send a notification if no reminder dialog is currently showing
+      if (!document.querySelector('.reminder-dialog')) {
+        // Also trigger the fallback dialog (most reliable approach)
+        createReminderDialog();
+        
+        // And notify the main process (least reliable but complete the triad)
+        ipcRenderer.send('time-reminder');
+        
+        // Store the current time as the last notification time
+        elapsedTimeSpan.setAttribute('data-last-notification', elapsed.toString());
+      }
+    }
+  }
+  
   // DO NOT automatically fill the time spent input - only update when user clicks "Use Tracked Time"
   // This allows users to enter their own time manually if they prefer
+}
+
+// Helper function to create reminder dialog directly from renderer
+function createReminderDialog() {
+  // Play audio alert to get attention
+  try {
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBhxQo/T/xHErCgogZbX94sN3MRIFKHCy8tm6dDMUBzRyruPOr201EglBdarbwKVqNRQQS32i0LSdZjgYFlJ7mMWolGE8HB5TcJLAn5FfQCEfUTyaw5OJX0MkHlMo0LyIiFxEJxhT');
+    audio.volume = 1.0;
+    audio.play().catch(err => console.log('Error playing sound:', err));
+  } catch (e) {
+    console.error('Failed to play sound:', e);
+  }
+  
+  // Request window to flash in taskbar
+  ipcRenderer.send('flash-window', true);
+  
+  // Create the reminder dialog
+  const reminderDialog = document.createElement('div');
+  reminderDialog.classList.add('reminder-dialog');
+  reminderDialog.style.zIndex = "10000"; // Ensure it's on top
+  reminderDialog.innerHTML = `
+    <div class="reminder-content">
+      <div class="pulse-animation">
+        <h2 class="blinking">TIME TO LOG YOUR WORK!</h2>
+      </div>
+      <p class="reminder-message">Your tracking reminder has elapsed. Please update your time log now!</p>
+      <div class="reminder-buttons">
+        <button id="reminder-log-now" class="primary-button">Log Work Now</button>
+        <button id="reminder-later" class="secondary-button">Remind Me Later</button>
+        <button id="reminder-snooze" class="small-button">Snooze 5 minutes</button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(reminderDialog);
+  
+  // Handle reminder dialog buttons
+  document.getElementById('reminder-log-now').addEventListener('click', () => {
+    document.body.removeChild(reminderDialog);
+    ipcRenderer.send('flash-window', false);
+    showLogWorkSection();
+  });
+  
+  document.getElementById('reminder-later').addEventListener('click', () => {
+    document.body.removeChild(reminderDialog);
+    ipcRenderer.send('flash-window', false);
+  });
+  
+  document.getElementById('reminder-snooze').addEventListener('click', () => {
+    document.body.removeChild(reminderDialog);
+    ipcRenderer.send('flash-window', false);
+    // Snooze the reminder for 5 minutes
+    ipcRenderer.send('set-reminder', 5);
+  });
+  
+  // Auto-remove after 60 seconds
+  setTimeout(() => {
+    if (document.body.contains(reminderDialog)) {
+      document.body.removeChild(reminderDialog);
+      ipcRenderer.send('flash-window', false);
+    }
+  }, 60000);
+  
+  return reminderDialog;
 }
 
 // Function to show help about API tokens when the field is focused
@@ -889,6 +1150,39 @@ function showLogWorkSection() {
     const seconds = Math.floor(elapsed % 60).toString().padStart(2, '0');
     
     elapsedTimeSpan.textContent = `${hours}:${minutes}:${seconds}`;
+  }
+}
+
+// Function to show a browser notification
+function showBrowserNotification(title, body) {
+  try {
+    const notification = new Notification(title, {
+      body: body,
+      icon: 'assets/icon.png',
+      requireInteraction: true // Will stay until user interacts with it
+    });
+    
+    notification.onclick = function() {
+      console.log('Browser notification clicked');
+      
+      // Focus the window and show log work section
+      ipcRenderer.send('flash-window', false);
+      showLogWorkSection();
+    };
+    
+    // Also play a sound
+    try {
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBhxQo/T/xHErCgogZbX94sN3MRIFKHCy8tm6dDMUBzRyruPOr201EglBdarbwKVqNRQQS32i0LSdZjgYFlJ7mMWolGE8HB5TcJLAn5FfQCEfUTyaw5OJX0MkHlMo0LyIiFxEJxhT');
+      audio.volume = 1.0;
+      audio.play().catch(err => console.log('Error playing sound:', err));
+    } catch (e) {
+      console.error('Failed to play sound:', e);
+    }
+    
+    return notification;
+  } catch (error) {
+    console.error('Error creating browser notification:', error);
+    return null;
   }
 }
 

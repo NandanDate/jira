@@ -237,6 +237,22 @@ function scheduleReminder(minutes) {
     return; // Don't schedule if invalid
   }
   
+  console.log(`Scheduling reminder for ${minutes} minutes (${minutes * 60} seconds)`);
+  
+  // If it's a very short time (for testing), show immediately
+  if (minutes <= 1) {
+    console.log('Short reminder time detected, will show notification immediately for testing');
+    // Short delay to ensure UI is ready
+    setTimeout(() => {
+      showReminder("Jira Logger Reminder", "Time to update your Jira task! Click to add comments and log work.");
+      
+      // Send message to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('time-reminder');
+      }
+    }, 5000); // 5 second initial delay for testing
+  }
+  
   reminderIntervalId = setInterval(() => {
     // Show reminder using a simplified approach
     showReminder("Jira Logger Reminder", "Time to update your Jira task! Click to add comments and log work.");
@@ -249,6 +265,8 @@ function scheduleReminder(minutes) {
 }
 
 function showReminder(title, message) {
+  console.log('Showing reminder with title:', title, 'and message:', message);
+  
   if (mainWindow) {
     // Show window if not visible
     if (!mainWindow.isVisible()) {
@@ -276,29 +294,116 @@ function showReminder(title, message) {
     }, 5000); // Flash for 5 seconds
   }
   
-  // Show notification
-  const notification = new Notification({
-    title: title,
-    body: message,
-    icon: path.join(__dirname, 'assets/icon.png'),
-    urgency: 'critical'
-  });
-  
-  notification.show();
-  
-  // Handle notification click
-  notification.on('click', () => {
-    if (mainWindow) {
-      if (!mainWindow.isVisible()) {
-        mainWindow.show();
+  try {
+    // This is a workaround for Windows notification issues
+    // Simple approach using browser notification for Windows 
+    if (process.platform === 'win32') {
+      // First try with the simpler approach for Windows
+      try {
+        // Directly send to renderer for browser-based notification
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          console.log('Using browser-based notification for Windows');
+          mainWindow.webContents.send('show-browser-notification', { title, message });
+          
+          // Also use the fallback for redundancy
+          setTimeout(() => {
+            mainWindow.webContents.send('reminder-fallback');
+          }, 500);
+          
+          return;
+        }
+      } catch (winError) {
+        console.error('Windows browser notification failed:', winError);
       }
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.focus();
-      mainWindow.webContents.send('show-log-work');
     }
-  });
+    
+    // Standard Electron notification (works better on macOS/Linux)
+    // Create and show desktop notification with more options
+    const notification = new Notification({
+      title: title,
+      body: message,
+      icon: path.join(__dirname, 'assets/icon.png'),
+      silent: false, // Play the default notification sound
+      urgency: 'critical',
+      timeoutType: 'never', // Don't automatically dismiss
+      actions: process.platform === 'win32' ? [
+        {
+          type: 'button',
+          text: 'Log Work Now'
+        },
+        {
+          type: 'button',
+          text: 'Snooze 5min'
+        }
+      ] : undefined // Actions only work on some platforms
+    });
+    
+    console.log('Created notification, now showing...');
+    notification.show();
+    console.log('Notification shown');
+    
+    // Handle notification click
+    notification.on('click', () => {
+      console.log('Notification clicked');
+      if (mainWindow) {
+        if (!mainWindow.isVisible()) {
+          mainWindow.show();
+        }
+        if (mainWindow.isMinimized()) {
+          mainWindow.restore();
+        }
+        mainWindow.focus();
+        mainWindow.webContents.send('show-log-work');
+      }
+    });
+    
+    // Handle action button clicks
+    notification.on('action', (_, index) => {
+      console.log('Notification action clicked:', index);
+      if (index === 0) { // Log Work Now
+        if (mainWindow) {
+          if (!mainWindow.isVisible()) {
+            mainWindow.show();
+          }
+          if (mainWindow.isMinimized()) {
+            mainWindow.restore();
+          }
+          mainWindow.focus();
+          mainWindow.webContents.send('show-log-work');
+        }
+      } else if (index === 1) { // Snooze 5min
+        scheduleReminder(5);
+      }
+    });
+    
+    // Handle close event
+    notification.on('close', () => {
+      console.log('Notification closed by user');
+    });
+    
+    // Handle show event
+    notification.on('show', () => {
+      console.log('Notification shown to user');
+    });
+    
+    // Fall back to window alert if the notification doesn't show
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('reminder-fallback');
+      }
+    }, 2000);
+    
+    return notification;
+  } catch (error) {
+    console.error('Error showing notification:', error);
+    
+    // Send fallback alert to renderer if notification fails
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('reminder-fallback');
+    }
+    
+    return null;
+  }
 }
 
 function clearReminder() {
@@ -322,6 +427,10 @@ app.whenReady().then(() => {
   // Listen for IPC messages from renderer
   ipcMain.on('set-reminder', (event, minutes) => {
     scheduleReminder(minutes);
+  });
+  
+  ipcMain.on('time-reminder', (event) => {
+    showReminder("Jira Logger Reminder", "Time to update your Jira task! Click to add comments and log work.");
   });
   
   ipcMain.on('flash-window', (event, start) => {
